@@ -5,32 +5,38 @@ HINSTANCE g_hInst;
 
 HANDLE tcpThread;
 HANDLE capThread;
-static BOOL tcpThreadRun = TRUE;
+static BOOL ThreadRun = TRUE;
+static BOOL capBool = FALSE;
 
 HWND hwnd1;
 HBITMAP hBitmap;
 HGDIOBJ oldBitmap;
 
-DWORD APIENTRY CreateCapThread() {
-    int ScreenWidth = GetSystemMetrics(SM_CXSCREEN);
-    int ScreenHeight = GetSystemMetrics(SM_CYSCREEN);
+int ScreenWidth;
+int ScreenHeight;
 
+DWORD APIENTRY CreateCapThread() {
     while(1){
         HDC hScrDC, hMemDC;
         BOOL run = FALSE;
-		hScrDC = CreateDCW(L"DISPLAY", NULL, NULL, NULL);
-		hMemDC = CreateCompatibleDC(hScrDC);
-		hBitmap = CreateCompatibleBitmap(hScrDC, ScreenWidth, ScreenHeight);
-		SelectObject(hMemDC, hBitmap);
+        
+        hScrDC = CreateDCW(L"DISPLAY", NULL, NULL, NULL);
+        hMemDC = CreateCompatibleDC(hScrDC);
+        hBitmap = CreateCompatibleBitmap(hScrDC, ScreenWidth, ScreenHeight);
+        SelectObject(hMemDC, hBitmap);
 
-		BitBlt(hMemDC, 0, 0, ScreenWidth, ScreenHeight, hScrDC, 0, 0, SRCCOPY);
-
+        BitBlt(hMemDC, 0, 0, ScreenWidth, ScreenHeight, hScrDC, 0, 0, SRCCOPY);
         DeleteDC(hMemDC);
         DeleteDC(hScrDC);
-
-        InvalidateRect(hwnd1, NULL, TRUE);
-
-        Sleep(1000);
+        capBool = TRUE;
+        InvalidateRect(hwnd1, NULL, FALSE);
+        while(1){
+            if(capBool == FALSE) {
+                DeleteObject(hBitmap);
+                break;
+            }
+        }
+        Sleep(33);
 	}
 
     return 0;
@@ -68,14 +74,6 @@ DWORD APIENTRY CreateTcpThread(LPVOID lpParam) {
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    HWND btn1;
-    HWND btn2;
-
-    HDC hdc;
-    PAINTSTRUCT ps;
-
-    hwnd1 = hWnd;
-
     int suspendCount1;
     int suspendCount2;
 
@@ -92,40 +90,45 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
             }
 
         case WM_CREATE:
-            btn1 = CreateWindowW(L"button", L"실행", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 20, 20, 100, 25, hWnd, (HMENU)1, g_hInst, NULL);
-            btn2 = CreateWindowW(L"button", L"중지", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 20, 60, 100, 25, hWnd, (HMENU)2, g_hInst, NULL);
-            SendMessageW(btn1, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
-            SendMessageW(btn2, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
+            {
+                HWND btn1 = CreateWindowW(L"button", L"실행", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 20, 20, 100, 25, hWnd, (HMENU)1, g_hInst, NULL);
+                HWND btn2 = CreateWindowW(L"button", L"중지", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 20, 60, 100, 25, hWnd, (HMENU)2, g_hInst, NULL);
+                SendMessageW(btn1, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
+                SendMessageW(btn2, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
+            }
             return 0;
 
         case WM_PAINT:
-        {
-			HDC hdcMem;
-			BITMAP bitmap;
-            RECT rc;
+            {
+                HDC hdcMem;
+                BITMAP bitmap;
+                RECT rc;
+                HDC hdc;
+                PAINTSTRUCT ps;
 
-            GetClientRect(hWnd, &rc);
-            hdc = BeginPaint(hWnd, &ps);
-			hdcMem = CreateCompatibleDC(hdc);
-			oldBitmap = SelectObject(hdcMem, hBitmap);
-
-			GetObjectW(hBitmap, sizeof(bitmap), &bitmap);
-            StretchBlt(hdc, 0, 0, rc.right - rc.left, rc.bottom - rc.top,  hdcMem, 0, 0, bitmap.bmWidth, bitmap.bmHeight, SRCCOPY);
-			TextOutW(hdc, 100, 150, L"server", 6);
-            if(tcpThreadRun) TextOutW(hdc, 100, 100, L"실행중", 3);
-            else TextOutW(hdc, 100, 100, L"중지", 2);
-            EndPaint(hWnd, &ps);
-
-            SelectObject(hdcMem, oldBitmap);
-            DeleteDC(hdcMem);
-            DeleteObject(oldBitmap);
-        }
+                GetClientRect(hWnd, &rc);
+                hdc = BeginPaint(hWnd, &ps);
+                if(capBool) {
+                    hdcMem = CreateCompatibleDC(hdc);
+                    oldBitmap = SelectObject(hdcMem, hBitmap);
+                    GetObjectW(hBitmap, sizeof(bitmap), &bitmap);
+                    StretchBlt(hdc, 0, 0, rc.right - rc.left, rc.bottom - rc.top,  hdcMem, 0, 0, bitmap.bmWidth, bitmap.bmHeight, SRCCOPY);
+                    SelectObject(hdcMem, oldBitmap);
+                    DeleteDC(hdcMem);
+                    DeleteObject(oldBitmap);
+                    capBool = FALSE;
+                }
+                TextOutW(hdc, 100, 150, L"server", 6);
+                if(ThreadRun) TextOutW(hdc, 100, 100, L"실행중", 3);
+                else TextOutW(hdc, 100, 100, L"중지", 2);
+                EndPaint(hWnd, &ps);
+            }
 
         case WM_COMMAND:
             switch (LOWORD(wParam))
             {
             case 1:
-                tcpThreadRun = TRUE;
+                ThreadRun = TRUE;
                 do { 
                     suspendCount1 = ResumeThread(tcpThread); 
                 } while(suspendCount1 > 0);
@@ -136,7 +139,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
                 break;
 
             case 2:
-                tcpThreadRun = FALSE;
+                ThreadRun = FALSE;
                 SuspendThread(tcpThread);
                 SuspendThread(capThread);
                 InvalidateRect(hWnd, NULL, TRUE);
@@ -159,6 +162,9 @@ INT APIENTRY WinMain(HINSTANCE hIns, HINSTANCE hPrev, LPSTR cmd, INT nShow)
     DWORD capThreadId = 0;
     DWORD capThreadParam = 0;
 
+    ScreenWidth = GetSystemMetrics(SM_CXSCREEN);
+    ScreenHeight = GetSystemMetrics(SM_CYSCREEN);
+
     g_hInst = hIns;
 
     wc.style         = 0;
@@ -174,14 +180,17 @@ INT APIENTRY WinMain(HINSTANCE hIns, HINSTANCE hPrev, LPSTR cmd, INT nShow)
 
     RegisterClassW(&wc);
 
-    hWnd = CreateWindowW(CLASS_NAME, L"서버", WS_OVERLAPPEDWINDOW, GetSystemMetrics(SM_CXSCREEN) / 2 - 160, GetSystemMetrics(SM_CYSCREEN) / 2 - 120, 320, 240, NULL, NULL, hIns, NULL);
-    tcpThread = CreateThread(NULL, 0, CreateTcpThread, &tcpThreadParam, 0, &tcpThreadId);
-    capThread = CreateThread(NULL, 0, CreateCapThread, &capThreadParam, 0, &capThreadId);
+    hWnd = CreateWindowW(CLASS_NAME, L"서버", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, NULL, NULL, hIns, NULL);
 
     if (hWnd == NULL)
     {
         return 0;
     }
+
+    hwnd1 = hWnd;
+
+    tcpThread = CreateThread(NULL, 0, CreateTcpThread, &tcpThreadParam, 0, &tcpThreadId);
+    capThread = CreateThread(NULL, 0, CreateCapThread, &capThreadParam, 0, &capThreadId);
 
     ShowWindow(hWnd, nShow);
     UpdateWindow(hWnd);
