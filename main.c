@@ -38,7 +38,7 @@ DWORD APIENTRY CreateTcpThread(LPVOID lpParam) {
     }
 
     recv(clientsock, buf, buflen, 0);
-    WSACleanup();
+    WSACleanup(); 
 
     return 0;
 }
