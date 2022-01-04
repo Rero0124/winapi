@@ -1,13 +1,40 @@
-#include <Windows.h>
+#include <windows.h>
 #include <WinSock2.h>
 
 HINSTANCE g_hInst;
 
 HANDLE tcpThread;
+HANDLE capThread;
 static BOOL tcpThreadRun = TRUE;
 
-int i = 0;
 HWND hwnd1;
+HBITMAP hBitmap;
+HGDIOBJ oldBitmap;
+
+DWORD APIENTRY CreateCapThread() {
+    int ScreenWidth = GetSystemMetrics(SM_CXSCREEN);
+    int ScreenHeight = GetSystemMetrics(SM_CYSCREEN);
+
+    while(1){
+        HDC hScrDC, hMemDC;
+        BOOL run = FALSE;
+		hScrDC = CreateDCW(L"DISPLAY", NULL, NULL, NULL);
+		hMemDC = CreateCompatibleDC(hScrDC);
+		hBitmap = CreateCompatibleBitmap(hScrDC, ScreenWidth, ScreenHeight);
+		SelectObject(hMemDC, hBitmap);
+
+		BitBlt(hMemDC, 0, 0, ScreenWidth, ScreenHeight, hScrDC, 0, 0, SRCCOPY);
+
+        DeleteDC(hMemDC);
+        DeleteDC(hScrDC);
+
+        InvalidateRect(hwnd1, NULL, TRUE);
+
+        Sleep(1000);
+	}
+
+    return 0;
+}
 
 DWORD APIENTRY CreateTcpThread(LPVOID lpParam) {
     const int buflen = 4096;
@@ -32,13 +59,10 @@ DWORD APIENTRY CreateTcpThread(LPVOID lpParam) {
     listen(listensock, 1);
     while(1){
         clientsock = accept(listensock, (SOCKADDR *)&addr_client, &addrlen_ctl);
-        i++;
-        InvalidateRect(hwnd1, NULL, TRUE);
-        Sleep(1000);
     }
 
     recv(clientsock, buf, buflen, 0);
-    WSACleanup(); 
+    WSACleanup();
 
     return 0;
 }
@@ -52,7 +76,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 
     hwnd1 = hWnd;
 
-    int suspendCount;
+    int suspendCount1;
+    int suspendCount2;
 
     switch (uMsg)
     {
@@ -72,16 +97,28 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
             SendMessageW(btn1, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
             SendMessageW(btn2, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
             return 0;
-        
+
         case WM_PAINT:
         {
-            char text[256];
-            sprintf(text, "%d", i);
+			HDC hdcMem;
+			BITMAP bitmap;
+            RECT rc;
+
+            GetClientRect(hWnd, &rc);
             hdc = BeginPaint(hWnd, &ps);
+			hdcMem = CreateCompatibleDC(hdc);
+			oldBitmap = SelectObject(hdcMem, hBitmap);
+
+			GetObjectW(hBitmap, sizeof(bitmap), &bitmap);
+            StretchBlt(hdc, 0, 0, rc.right - rc.left, rc.bottom - rc.top,  hdcMem, 0, 0, bitmap.bmWidth, bitmap.bmHeight, SRCCOPY);
+			TextOutW(hdc, 100, 150, L"server", 6);
             if(tcpThreadRun) TextOutW(hdc, 100, 100, L"실행중", 3);
             else TextOutW(hdc, 100, 100, L"중지", 2);
-            TextOutA(hdc, 200, 100, text, strlen(text));
             EndPaint(hWnd, &ps);
+
+            SelectObject(hdcMem, oldBitmap);
+            DeleteDC(hdcMem);
+            DeleteObject(oldBitmap);
         }
 
         case WM_COMMAND:
@@ -89,13 +126,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
             {
             case 1:
                 tcpThreadRun = TRUE;
-                do { suspendCount = ResumeThread(tcpThread); } while(suspendCount > 0);
+                do { 
+                    suspendCount1 = ResumeThread(tcpThread); 
+                } while(suspendCount1 > 0);
+                do { 
+                    suspendCount2 = ResumeThread(capThread); 
+                } while(suspendCount2 > 0);
                 InvalidateRect(hWnd, NULL, TRUE);
                 break;
-            
+
             case 2:
                 tcpThreadRun = FALSE;
                 SuspendThread(tcpThread);
+                SuspendThread(capThread);
                 InvalidateRect(hWnd, NULL, TRUE);
                 break;
             }
@@ -113,6 +156,8 @@ INT APIENTRY WinMain(HINSTANCE hIns, HINSTANCE hPrev, LPSTR cmd, INT nShow)
 
     DWORD tcpThreadId = 0;
     DWORD tcpThreadParam = 0;
+    DWORD capThreadId = 0;
+    DWORD capThreadParam = 0;
 
     g_hInst = hIns;
 
@@ -129,8 +174,9 @@ INT APIENTRY WinMain(HINSTANCE hIns, HINSTANCE hPrev, LPSTR cmd, INT nShow)
 
     RegisterClassW(&wc);
 
-    hWnd = CreateWindowW(CLASS_NAME, L"테스트", WS_OVERLAPPEDWINDOW, GetSystemMetrics(SM_CXSCREEN) / 2 - 160, GetSystemMetrics(SM_CYSCREEN) / 2 - 120, 320, 240, NULL, NULL, hIns, NULL);
+    hWnd = CreateWindowW(CLASS_NAME, L"서버", WS_OVERLAPPEDWINDOW, GetSystemMetrics(SM_CXSCREEN) / 2 - 160, GetSystemMetrics(SM_CYSCREEN) / 2 - 120, 320, 240, NULL, NULL, hIns, NULL);
     tcpThread = CreateThread(NULL, 0, CreateTcpThread, &tcpThreadParam, 0, &tcpThreadId);
+    capThread = CreateThread(NULL, 0, CreateCapThread, &capThreadParam, 0, &capThreadId);
 
     if (hWnd == NULL)
     {
