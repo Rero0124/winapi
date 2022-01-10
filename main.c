@@ -4,9 +4,7 @@
 HINSTANCE g_hInst;
 
 HANDLE tcpThread;
-HANDLE capThread;
 static BOOL ThreadRun = TRUE;
-static BOOL capBool = FALSE;
 
 HWND hwnd1;
 HBITMAP hBitmap;
@@ -15,37 +13,9 @@ HGDIOBJ oldBitmap;
 int ScreenWidth;
 int ScreenHeight;
 
-DWORD APIENTRY CreateCapThread() {
-    while(1){
-        HDC hScrDC, hMemDC;
-        BOOL run = FALSE;
-        
-        hScrDC = CreateDCW(L"DISPLAY", NULL, NULL, NULL);
-        hMemDC = CreateCompatibleDC(hScrDC);
-        hBitmap = CreateCompatibleBitmap(hScrDC, ScreenWidth, ScreenHeight);
-        SelectObject(hMemDC, hBitmap);
-
-        BitBlt(hMemDC, 0, 0, ScreenWidth, ScreenHeight, hScrDC, 0, 0, SRCCOPY);
-        DeleteDC(hMemDC);
-        DeleteDC(hScrDC);
-        capBool = TRUE;
-        InvalidateRect(hwnd1, NULL, FALSE);
-        while(1){
-            if(capBool == FALSE) {
-                DeleteObject(hBitmap);
-                break;
-            }
-        }
-        Sleep(33);
-	}
-
-    return 0;
-}
-
 DWORD APIENTRY CreateTcpThread(LPVOID lpParam) {
     const int buflen = 4096;
     char buf[buflen];
-    WORD wVersionRequested;
     WSADATA wsadata;
     SOCKET listensock;
     SOCKET clientsock;
@@ -53,7 +23,7 @@ DWORD APIENTRY CreateTcpThread(LPVOID lpParam) {
     SOCKADDR_IN addr_client;
     int addrlen_ctl = sizeof(SOCKADDR);
 
-    WSAStartup(wVersionRequested, &wsadata);
+    WSAStartup((WORD)(2.0), &wsadata);
 
     listensock = socket(AF_INET, SOCK_STREAM, 0);
     addr_server.sin_family = AF_INET;
@@ -74,8 +44,7 @@ DWORD APIENTRY CreateTcpThread(LPVOID lpParam) {
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    int suspendCount1;
-    int suspendCount2;
+    int suspendCount;
 
     switch (uMsg)
     {
@@ -108,16 +77,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 
                 GetClientRect(hWnd, &rc);
                 hdc = BeginPaint(hWnd, &ps);
-                if(capBool) {
-                    hdcMem = CreateCompatibleDC(hdc);
-                    oldBitmap = SelectObject(hdcMem, hBitmap);
-                    GetObjectW(hBitmap, sizeof(bitmap), &bitmap);
-                    StretchBlt(hdc, 0, 0, rc.right - rc.left, rc.bottom - rc.top,  hdcMem, 0, 0, bitmap.bmWidth, bitmap.bmHeight, SRCCOPY);
-                    SelectObject(hdcMem, oldBitmap);
-                    DeleteDC(hdcMem);
-                    DeleteObject(oldBitmap);
-                    capBool = FALSE;
-                }
                 TextOutW(hdc, 100, 150, L"server", 6);
                 if(ThreadRun) TextOutW(hdc, 100, 100, L"실행중", 3);
                 else TextOutW(hdc, 100, 100, L"중지", 2);
@@ -130,18 +89,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
             case 1:
                 ThreadRun = TRUE;
                 do { 
-                    suspendCount1 = ResumeThread(tcpThread); 
-                } while(suspendCount1 > 0);
-                do { 
-                    suspendCount2 = ResumeThread(capThread); 
-                } while(suspendCount2 > 0);
+                    suspendCount = ResumeThread(tcpThread); 
+                } while(suspendCount > 0);
                 InvalidateRect(hWnd, NULL, TRUE);
                 break;
 
             case 2:
                 ThreadRun = FALSE;
                 SuspendThread(tcpThread);
-                SuspendThread(capThread);
                 InvalidateRect(hWnd, NULL, TRUE);
                 break;
             }
@@ -190,10 +145,8 @@ INT APIENTRY WinMain(HINSTANCE hIns, HINSTANCE hPrev, LPSTR cmd, INT nShow)
     hwnd1 = hWnd;
 
     tcpThread = CreateThread(NULL, 0, CreateTcpThread, &tcpThreadParam, 0, &tcpThreadId);
-    capThread = CreateThread(NULL, 0, CreateCapThread, &capThreadParam, 0, &capThreadId);
 
     ShowWindow(hWnd, nShow);
-    UpdateWindow(hWnd);
 
     while (GetMessageW(&msg, NULL, 0, 0))
     {
